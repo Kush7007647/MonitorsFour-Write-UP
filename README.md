@@ -1,4 +1,4 @@
-<img width="1342" height="786" alt="image" src="https://github.com/user-attachments/assets/a2f4f663-6a39-41a6-ae89-e6aea0c81a59" /># MonitorFour-Write-UP : Hack The Box
+# MonitorFour-Write-UP : Hack The Box
 
 <img width="850" height="628" alt="image" src="https://github.com/user-attachments/assets/6d04c533-1ce2-48f9-a153-ec5cf05f4244" /> 
 

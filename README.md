@@ -19,7 +19,10 @@ The machine teaches how multiple small vulnerabilities can be chained together t
 
 USER.TXT 
 
+# Reconaissance
 
+Port scanning
+We start with classic recon by performing a full port scan. The goal here is to identify exposed services and understand the attack surface before interacting with the target further.
 • Enumeration : Scan Port using nmap 
 	
     CMD : nmap -sS <IP>
@@ -28,8 +31,10 @@ USER.TXT
 Http - 80 
 WinRM - 5985
 	
- Explore Webpage : But not Open because it is Resolve to = monitorsfour.htb
-	
+Explore Webpage : But not Open because it is Resolve to = monitorsfour.htb
+
+Port 80 hosts the web application behind Nginx, while port 5985 exposes WinRM, indicating the backend system is Windows. The presence of a PHPSESSID cookie also suggests the site is using PHP sessions.
+
 We can set IP and Domain name in /etc/hosts File.
 <img width="571" height="303" alt="image" src="https://github.com/user-attachments/assets/6dd6a80d-dd1a-417b-b790-8b6cc0ac8b14" />
 
@@ -38,6 +43,8 @@ Explore Again Http Web pages : In this Web Page Found Login Page
 
 <img width="1547" height="799" alt="image" src="https://github.com/user-attachments/assets/7358059b-d465-4982-a647-036e5c9faa3a" />
 
+
+Since the main website appeared mostly static, the next step was searching for hidden subdomains, as internal panels and monitoring applications are commonly hosted separately.
 Identify Subdomains : Using TOOL = FFUF
 	
     CMD :  ffuf -u http://monitorsfour.htb -H 'Host: FUZZ.monitorsfour.htb' -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt -t 50 -fs 138
@@ -46,7 +53,8 @@ Identify Subdomains : Using TOOL = FFUF
 <img width="1337" height="488" alt="image" src="https://github.com/user-attachments/assets/bcaed13a-899f-4184-b837-b9c7a226b582" />
 
 SUBDOMAIN : cacti 
-	
+This revealed cacti.monitorsfour.htb, which is running Cacti, a network monitoring platform known for several historical vulnerabilities including authentication bypasses and RCE issues.
+
 • Explore This Subdomain and Add In /etc/hosts file :
 
 
@@ -59,6 +67,9 @@ SUBDOMAIN : cacti
 Founded This Login Page and this Login page Version
 	
 Version : 1.2.28
+This confirms the target is running Cacti version 1.2.28, which is useful for identifying known vulnerabilities and matching public exploits to the correct version.
+
+
 	
 Directory Busting : Using Tool = Gobuster 
 	
@@ -71,7 +82,17 @@ Directory Busting : Using Tool = Gobuster
 
 
 See these Pages on = monitorsfour.htb URL
-	
+	The scan discovered an endpoint named /user.
+
+Testing the endpoint with different token values revealed insecure access control behavior. When the request used token=0, the application returned all user records instead of restricting access properly.
+
+The response contained usernames and MD5 password hashes, indicating that the backend failed to validate the token correctly.
+
+This behavior is characteristic of an IDOR vulnerability, where modifying user-controlled parameters allows access to unauthorized data.
+
+The request sends token=0 to the /user endpoint.
+
+
 • Check User Page :  
 
 <img width="1093" height="421" alt="image" src="https://github.com/user-attachments/assets/34eb6623-5cb5-4ab1-8799-01ad3f40f74a" />
@@ -95,7 +116,16 @@ Found a users Credential - Name , ID , HASH, Email, Role , etc. Details
 Analys Super User Role : Copy Password Hash 
 	
 • Crack Password in Some Websites : crack station , Hashes.com 
-	
+p
+assword Cracking
+The leaked MD5 hashes were checked against CrackStation, an online hash lookup database containing precomputed password hashes.
+
+The admin hash:
+
+56b32eb43e6f15395f6c46c1c9e1cd36
+was successfully cracked to:
+
+wonderful1
 Hashes.com 
 
 
@@ -122,6 +152,7 @@ Username : marcus
 	
 <img width="1825" height="685" alt="image" src="https://github.com/user-attachments/assets/902078d9-4423-42f0-9e6a-35544813a35c" />
 
+
 	
 
 	
@@ -137,7 +168,27 @@ Version : 1.2.28
   <img width="1732" height="867" alt="image" src="https://github.com/user-attachments/assets/02ed1618-8b24-4cd3-927e-3255f58c7830" />
 
 
-	
+Initial Access
+After getting CACTI panel access, nothing seems interesting more than cacti panel’s version, we can try to get RCE with this CVE-2025–24367
+
+CVE-2025–24367 is a critical security vulnerability in Cacti, a popular open-source network monitoring and performance graphing framework. With a CVSS score of 8.7, it is classified as a post-authentication Remote Code Execution (RCE) flaw.
+
+How the Vulnerability Works ?
+
+The flaw occurs within Cacti’s RRDTool graph template functionality, where the system parses user-supplied data for RRD command parameters (like --right-axis-label).
+
+The Root Cause: While Cacti attempts to sanitize user input and escape shell metacharacters, it fails to handle newline characters (\( \backslash n \)) properly.
+
+The Exploit: An authenticated attacker can inject newline characters into the input parameters, breaking out of the intended command context. This argument injection allows the attacker to execute additional RRDTool commands and write arbitrary, malicious PHP code directly into the application’s web root.
+
+The Impact: Once the malicious PHP script is successfully created in the web root, the attacker can simply access it via a web browser or HTTP request to execute arbitrary system commands with the privileges of the web server.
+
+Affected Versions
+
+This vulnerability affects Cacti versions up to 1.2.28.
+
+After identifying valid credentials for the Cacti panel, I cloned a public PoC for CVE-2025–24367 and prepared a listener to catch the reverse shell.
+
 We Found This Exploit - Cybergeek
 	
 - CVE-2025-24367
@@ -175,7 +226,7 @@ USER.TXT---------------------------------------------------------------FLAG{}---
 
 # ROOT.TXT
 
-
+After getting a shell inside the Cacti container, I first verified the environment to understand where I was operating from.
 • Start Privilege Escalation : 
 	
 [This is a Window machine But Access Get Linux machine ]
@@ -186,6 +237,7 @@ USER.TXT---------------------------------------------------------------FLAG{}---
 
 	
 Yes - machine have .docker file - it is Container 
+
 	
 • Check kernal Version in this Machine : 
 	
@@ -195,7 +247,9 @@ Yes - machine have .docker file - it is Container
 
 
 VERSION - 6.6.87.2
-	
+
+The hostname looked like a container ID, which strongly suggested we were inside Docker. Checking the network configuration confirmed this:
+
 • Check IP  :  
 	
 	CMD : ip  a 
@@ -204,6 +258,7 @@ VERSION - 6.6.87.2
 
 	
 This is a Container IP
+
 	
 	
 • Transfer Nmap Binary in this machine : in /var/www/html
@@ -338,14 +393,19 @@ ID Using Uniquely And Full name As Your wish
 	CMD :  curl http://192.168.65.7:2375/containers/7d99df11ee0f/logs?stdout=true
 
 <img width="1155" height="139" alt="image" src="https://github.com/user-attachments/assets/c50f2f80-4afe-4a66-a423-28998e537ade" />
+The exposed Docker API allowed full interaction with the Docker daemon, leading directly to host filesystem access and complete compromise of the machine.
 
 	
 ACCESS ROOT.TXT Content
 	
 	
 ROOT.TXT-------------------------------------------------------------------------FLAG{}-------------------------------------
+
+And Congrats, you have rooted the machine i guess!
+
+bye bye!	
 	
-	
-	
+
+
 	
 	
